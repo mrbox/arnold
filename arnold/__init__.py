@@ -3,6 +3,7 @@ import sys
 
 import argparse
 
+from peewee import sort_models_topologically, QueryCompiler
 from termcolor import colored
 
 from arnold.exceptions import DirectionNotFoundException
@@ -44,7 +45,7 @@ class Terminator:
         for f in files:
             splits = f.rsplit(".", 1)
             if len(splits) <= 1 or splits[1] != "py" or \
-               splits[0] in self.IGNORED_FILES:
+                            splits[0] in self.IGNORED_FILES:
                 continue
             filenames.append(splits[0])
         return sorted(filenames, key=lambda fname: int(fname.split("_")[0]))
@@ -132,7 +133,7 @@ class Terminator:
             migration_index = filenames.index(latest_migration.migration)
 
             if migration_index == len(filenames) - 1 and \
-                self.direction == 'up':
+                            self.direction == 'up':
                 print("Nothing to go {0}.".format(
                     colored(self.direction, "magenta"))
                 )
@@ -158,7 +159,7 @@ class Terminator:
         if self.count > len(migrations_to_complete):
             print(
                 "Count {0} greater than available migrations. Going {1} {2} times."
-                .format(
+                    .format(
                     colored(self.count, "green"),
                     colored(self.direction, "magenta"),
                     colored(len(migrations_to_complete), "red"),
@@ -195,6 +196,57 @@ def init(args):
     open('{0}/migrations/__init__.py'.format(args.folder), 'a').close()
     return True
 
+
+def create_tables(args):
+    def my_import(name):
+        components = name.split('.')
+        mod = __import__('.'.join(components[:-1]))
+        for comp in components[1:]:
+            mod = getattr(mod, comp)
+        return mod
+
+    model_classes = []
+    errors = False
+    for model in args.models:
+        print("Importing model {0}... ".format(colored(model, "magenta")), end='')
+        try:
+            model_class = my_import(model)
+            model_classes.append(model_class)
+            print(colored('OK', 'green'))
+        except ImportError:
+            print(colored('import error', 'red'))
+            errors = True
+    if errors:
+        sys.exit(1)
+
+    terminator = Terminator(args)
+
+    next_migration_num = '0001'
+    if terminator._retreive_filenames():
+        next_migration_num = terminator._retreive_filenames()[-1].split('_')[0]
+        next_migration_num = "%04d" % (int(next_migration_num) + 1)
+
+    migration_file_name = '{0}/{1}/{2}_auto_create_tables.py'.format(terminator.folder, 'migrations', next_migration_num)
+
+    print("Writing down migration file", colored(migration_file_name, 'blue'))
+    with open(migration_file_name, 'w') as migration_file:
+
+        print("# from ?? import database", file=migration_file)
+        print("database = None", file=migration_file)
+        print("raise NotImplementedError('Please define your database handler inside migration code')", file=migration_file)
+
+        print("\n\ndef up():", file=migration_file)
+        for m in sort_models_topologically(model_classes):
+            print("    # Create model", m.__module__ + '.' + m.__name__, file=migration_file)
+            qc = QueryCompiler('"', '?', {}, {})
+            print("    database.execute_sql('%s')\n" % qc.create_table(m)[0], file=migration_file)
+
+        print("\n\ndef down():", file=migration_file)
+
+        for m in reversed(sort_models_topologically(model_classes)):
+            print("    # Drop model", m.__module__ + '.' + m.__name__, file=migration_file)
+            qc = QueryCompiler('"', '?', {}, {})
+            print("    database.execute_sql('%s')\n" % qc.drop_table(m)[0], file=migration_file)
 
 def parse_args(args):
     sys.path.insert(0, os.getcwd())
@@ -234,7 +286,14 @@ def parse_args(args):
         'count', type=int, help='How many migrations to go down.'
     )
 
+    add_create_tables = subparsers.add_parser('add_create_tables',
+                                              help='Add migration with freezed SQL for create tables.')
+    add_create_tables.set_defaults(func=create_tables)
+    add_create_tables.add_argument('models', metavar='model', type=str, nargs='+',
+                                   help='models given with full import path')
+
     return parser.parse_args(args)
+
 
 def main():
     sys.argv.pop(0)
