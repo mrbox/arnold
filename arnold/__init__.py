@@ -226,27 +226,41 @@ def create_tables(args):
         next_migration_num = terminator._retreive_filenames()[-1].split('_')[0]
         next_migration_num = "%04d" % (int(next_migration_num) + 1)
 
-    migration_file_name = '{0}/{1}/{2}_auto_create_tables.py'.format(terminator.folder, 'migrations', next_migration_num)
+    migration_file_name = '{0}/{1}/{2}_auto_create_tables_{3}.py'.format(
+        terminator.folder, 'migrations', next_migration_num,
+        "_".join([m.__name__.lower() for m in model_classes]) if len(model_classes) < 4 else len(model_classes)
+    )
+
+    qc = terminator.database.compiler()
 
     print("Writing down migration file", colored(migration_file_name, 'blue'))
     with open(migration_file_name, 'w') as migration_file:
 
-        print("# from ?? import database", file=migration_file)
-        print("database = None", file=migration_file)
-        print("raise NotImplementedError('Please define your database handler inside migration code')", file=migration_file)
+        print("from {0} import {1} as model_class".format(model_classes[0].__module__, model_classes[0].__name__),
+              file=migration_file)
+        print("database = model_class._meta.database", file=migration_file)
 
         print("\n\ndef up():", file=migration_file)
         for m in sort_models_topologically(model_classes):
-            print("    # Create model", m.__module__ + '.' + m.__name__, file=migration_file)
-            qc = QueryCompiler('"', '?', {}, {})
+            print("\n    # Create model", m.__module__ + '.' + m.__name__, file=migration_file)
             print("    database.execute_sql('%s')\n" % qc.create_table(m)[0], file=migration_file)
+
+            for field in m._fields_to_index():
+                print("    database.execute_sql('%s')" % qc.create_index(m, [field], field.unique)[0],
+                      file=migration_file)
+
+            if m._meta.indexes:
+                for fields, unique in m._meta.indexes:
+                    fobjs = [m._meta.fields[f] for f in fields]
+                    print("    database.execute_sql('%s')" % qc.create_index(m, fobjs, unique)[0],
+                          file=migration_file)
 
         print("\n\ndef down():", file=migration_file)
 
         for m in reversed(sort_models_topologically(model_classes)):
-            print("    # Drop model", m.__module__ + '.' + m.__name__, file=migration_file)
-            qc = QueryCompiler('"', '?', {}, {})
-            print("    database.execute_sql('%s')\n" % qc.drop_table(m)[0], file=migration_file)
+            print("\n    # Drop model", m.__module__ + '.' + m.__name__, file=migration_file)
+            print("    database.execute_sql('%s')\n" % qc.drop_table(m, cascade=True)[0], file=migration_file)
+
 
 def parse_args(args):
     sys.path.insert(0, os.getcwd())
