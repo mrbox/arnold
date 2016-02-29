@@ -1,15 +1,15 @@
+from __future__ import print_function
 import os
 import sys
 
 import argparse
 
-from peewee import sort_models_topologically, QueryCompiler
+from peewee import sort_models_topologically
 from termcolor import colored
 
 from arnold.exceptions import DirectionNotFoundException
 from arnold.models import Migration
 from importlib import import_module
-from __future__ import print_function
 
 class Terminator:
     IGNORED_FILES = ["__init__"]
