@@ -288,7 +288,7 @@ def parse_args(args):
     up_cmd = subparsers.add_parser('up', help='Migrate up.')
     up_cmd.set_defaults(func=up)
     up_cmd.add_argument(
-        'count', type=int, help='How many migrations to go up.'
+        'count', type=int, default=0, nargs='?', help='How many migrations to go up.'
     )
     up_cmd.add_argument(
         '--fake', type=bool, default=False, help='Fake the migration.'
