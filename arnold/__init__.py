@@ -109,6 +109,11 @@ class Terminator:
             self.model.migration.desc()
         ).first()
 
+    def get_applied_migrations(self):
+        return self.model.select().order_by(
+            self.model.migration.desc()
+        )
+
     def perform_migrations(self, direction):
         """
         Find the migration if it is passed in and call the up or down method as
@@ -119,42 +124,33 @@ class Terminator:
 
         filenames = self._retreive_filenames()
 
-        if self.direction == "down":
-            filenames.reverse()
-
         if len(filenames) <= 0:
             return True
 
-        start = 0
+        applied_migrations = self.get_applied_migrations()
+        applied_migrations_names = set([x.migration for x in applied_migrations])
+        filenames_set = set(filenames)
+        if self.direction == 'up':
+            migrations_to_run = filenames_set.difference(applied_migrations_names)
+        else:
+            migrations_to_run = filenames_set.intersection(applied_migrations_names)
+        migrations_to_run = sorted(list(migrations_to_run), key=lambda fname: int(fname.split("_")[0]))
 
-        latest_migration = self.get_latest_migration()
+        if self.direction == "down":
+            migrations_to_run.reverse()
 
-        if latest_migration:
-            migration_index = filenames.index(latest_migration.migration)
-
-            if migration_index == len(filenames) - 1 and \
-                            self.direction == 'up':
-                print("Nothing to go {0}.".format(
-                    colored(self.direction, "magenta"))
-                )
-                return False
-
-            if self.direction == 'up':
-                start = migration_index + 1
-            else:
-                start = migration_index
-        if not latest_migration and self.direction == 'down':
+        if len(migrations_to_run) == 0:
             print("Nothing to go {0}.".format(
                 colored(self.direction, "magenta"))
             )
             return False
 
         if self.count == 0:
-            end = len(filenames)
+            end = len(migrations_to_run)
         else:
-            end = start + self.count
+            end = self.count
 
-        migrations_to_complete = filenames[start:end]
+        migrations_to_complete = migrations_to_run[:end]
 
         if self.count > len(migrations_to_complete):
             print(
