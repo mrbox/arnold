@@ -23,3 +23,17 @@ The basic template for a migration is as follows: ::
       pass
 
 A more complete example of a migration file can be found `here <https://github.com/cam-stitt/arnold/blob/master/tests/arnold_config/migrations/001_initial.py>`_.
+
+You can automatically create a migration file for migrations that create models. You want to do that to freeze state of models.
+See following example, file 001_initial.py: ::
+
+    db.create_table(SomeModel)
+
+File 002_some_change.py: ::
+
+    Add some_column to SomeModel
+
+In this scenario if you run this migration against clean database, migration 002 will fail because migration 001 already created some_column.
+To freeze models properly you can use `add_create_tables` method: ::
+
+    $ arnold add_create_tables fully.qualified.path.SomeModel1 fully.qualified.path.SomeModel2 ...
